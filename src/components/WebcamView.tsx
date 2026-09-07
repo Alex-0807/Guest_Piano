@@ -1,35 +1,51 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DrawingUtils } from "@mediapipe/tasks-vision";
+import { DrawingUtils, type HandLandmarkerResult } from "@mediapipe/tasks-vision";
 import { detectHands, HandLandmarker, loadHandLandmarker } from "@/gesture/handLandmarker";
 
 type Status = "loading" | "ready" | "error";
 
-const LANDMARK_COLOR = "#f472b6";
+const LANDMARK_COLOR = "#facc15";
 const CONNECTION_COLOR = "#22d3ee";
+
+interface WebcamViewProps {
+  /** Called once per detected frame with the raw MediaPipe result. This
+   * component only draws — it has no idea what a "gesture" or "chord" is —
+   * so turning detections into music lives entirely in whatever's passed
+   * here (see engine/useGestureController.ts). */
+  onFrame?: (result: HandLandmarkerResult, timestampMs: number) => void;
+}
 
 /**
  * Webcam feed with a live hand-landmark overlay. No gesture logic here —
- * this layer only proves the camera + MediaPipe pipeline works and is
- * correctly mirrored. Gesture classification (turning landmarks into
- * degrees/patterns) is a separate, pure-function layer (see gesture/leftHand.ts
- * etc., not built yet) that will consume `HandLandmarkerResult` the same way
- * this component does.
+ * this layer only owns the camera + MediaPipe pipeline and its mirrored
+ * visual overlay. Gesture classification (turning landmarks into
+ * degrees/patterns) lives in gesture/leftHand.ts, gesture/rightHand.ts etc.,
+ * consuming the same `HandLandmarkerResult` via the `onFrame` callback.
  *
  * Mirroring note: the <video> is CSS-mirrored (scaleX(-1)) for a natural
  * selfie view, but MediaPipe always sees the raw, unmirrored frame — its
  * landmark coordinates are relative to that raw frame. The canvas overlay
  * mirrors its own drawing to match the mirrored video. This does NOT by
  * itself make MediaPipe's left/right handedness labels correct for a
- * mirrored preview — that's a separate concern for the gesture-classifier
- * layer to handle explicitly, not something to silently assume here.
+ * mirrored preview — that correction happens explicitly in
+ * gesture/gestureEngine.ts, not here.
  */
-export default function WebcamView() {
+export default function WebcamView({ onFrame }: WebcamViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
+
+  // onFrame is read through a ref so the detection-loop effect below (which
+  // sets up the camera/model exactly once) always calls the LATEST callback
+  // without needing to re-run camera/model setup whenever the parent
+  // re-renders and hands in a new function reference.
+  const onFrameRef = useRef(onFrame);
+  useEffect(() => {
+    onFrameRef.current = onFrame;
+  }, [onFrame]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -66,7 +82,9 @@ export default function WebcamView() {
         const renderFrame = () => {
           if (cancelled) return;
 
-          const result = detectHands(video, performance.now());
+          const timestampMs = performance.now();
+          const result = detectHands(video, timestampMs);
+          onFrameRef.current?.(result, timestampMs);
 
           ctx.save();
           ctx.clearRect(0, 0, canvas.width, canvas.height);

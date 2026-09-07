@@ -4,29 +4,27 @@ import { useState } from "react";
 import { loadPianoSampler, startAudioContext } from "@/audio/sampler";
 import { setSchedulerBpm, startScheduler, stopScheduler } from "@/audio/scheduler";
 import { useEngineStore } from "@/engine/engineStore";
-import { buildChord, chordName } from "@/music/chordEngine";
-import { ROMAN_NUMERAL_BY_DEGREE } from "@/music/theory";
-import type { MusicalKey, PatternId, ScaleDegree } from "@/music/types";
-
-// Temporary manual controls to prove the scheduler's beat-quantized chord
-// switching works end-to-end before gestures exist. The key is fixed to C
-// major here since key selection is a later UI concern (see KeySelector).
-const DEBUG_KEY: MusicalKey = { tonic: 0, mode: "major" };
-const DEGREES: ScaleDegree[] = [1, 2, 3, 4, 5, 6, 7];
-const PATTERN_IDS: PatternId[] = ["block", "arpeggio", "ballad", "pop"];
+import { chordName } from "@/music/chordEngine";
 
 type AudioStatus = "idle" | "loading" | "ready";
 
-export default function SchedulerDebugPanel() {
+/**
+ * The real performance HUD: BPM and Play/Stop stay manual controls (per the
+ * product spec — tempo isn't gesture-driven), but chord/pattern/dynamics are
+ * now live readouts driven by hand gestures via useGestureController, not
+ * buttons. This replaces the earlier SchedulerDebugPanel now that there's a
+ * real gesture pipeline to show instead of clickable stand-ins for one.
+ */
+export default function PerformanceHud() {
   const [audioStatus, setAudioStatus] = useState<AudioStatus>("idle");
 
   const bpm = useEngineStore((s) => s.bpm);
   const isPlaying = useEngineStore((s) => s.isPlaying);
   const pattern = useEngineStore((s) => s.pattern);
+  const dynamics = useEngineStore((s) => s.dynamics);
+  const muted = useEngineStore((s) => s.muted);
   const currentChord = useEngineStore((s) => s.currentChord);
   const pendingChord = useEngineStore((s) => s.pendingChord);
-  const setPattern = useEngineStore((s) => s.setPattern);
-  const setPendingChord = useEngineStore((s) => s.setPendingChord);
 
   async function handleStartAudio() {
     setAudioStatus("loading");
@@ -69,38 +67,10 @@ export default function SchedulerDebugPanel() {
         </button>
       </div>
 
-      <div className="flex gap-2">
-        {DEGREES.map((degree) => (
-          <button
-            key={degree}
-            onClick={() => setPendingChord(buildChord(DEBUG_KEY, degree))}
-            className="rounded-full border border-zinc-600 px-3 py-2 hover:bg-zinc-800"
-          >
-            {ROMAN_NUMERAL_BY_DEGREE[degree]}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2">
-        {PATTERN_IDS.map((id) => (
-          <button
-            key={id}
-            onClick={() => setPattern(id)}
-            className={`rounded-full border px-3 py-2 capitalize ${
-              pattern === id ? "border-white bg-zinc-800" : "border-zinc-600"
-            }`}
-          >
-            {id}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-10 text-center">
+      <div className="flex items-center gap-10 text-center">
         <div>
           <div className="text-xs uppercase tracking-wide text-zinc-500">Current</div>
-          <div className="text-2xl font-semibold">
-            {currentChord ? chordName(currentChord) : "—"}
-          </div>
+          <div className="text-4xl font-semibold">{currentChord ? chordName(currentChord) : "—"}</div>
         </div>
         <div>
           <div className="text-xs uppercase tracking-wide text-zinc-500">Pending</div>
@@ -108,6 +78,16 @@ export default function SchedulerDebugPanel() {
             {pendingChord ? chordName(pendingChord) : "—"}
           </div>
         </div>
+      </div>
+
+      <div className="flex items-center gap-6 text-sm text-zinc-400">
+        <span>
+          Pattern: <span className="capitalize text-zinc-50">{pattern}</span>
+        </span>
+        <span>
+          Dynamics: <span className="text-zinc-50">{Math.round(dynamics * 100)}%</span>
+        </span>
+        {muted && <span className="font-medium text-amber-400">Muted</span>}
       </div>
     </div>
   );
